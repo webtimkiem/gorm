@@ -1132,15 +1132,37 @@ func (scope *Scope) createJoinTable(field *StructField) {
 			toScope := &Scope{Value: reflect.New(field.Struct.Type).Interface()}
 
 			var sqlTypes, primaryKeys []string
-			for idx, fieldName := range relationship.ForeignFieldNames {
-				if field, ok := scope.FieldByName(fieldName); ok {
-					foreignKeyStruct := field.clone()
-					foreignKeyStruct.IsPrimaryKey = false
-					foreignKeyStruct.TagSettingsSet("IS_JOINTABLE_FOREIGNKEY", "true")
-					foreignKeyStruct.TagSettingsDelete("AUTO_INCREMENT")
-					sqlTypes = append(sqlTypes, scope.Quote(relationship.ForeignDBNames[idx])+" "+scope.Dialect().DataTypeOf(foreignKeyStruct))
-					primaryKeys = append(primaryKeys, scope.Quote(relationship.ForeignDBNames[idx]))
+
+			if relationship.PolymorphicType == "" {
+				for idx, fieldName := range relationship.ForeignFieldNames {
+					if field, ok := scope.FieldByName(fieldName); ok {
+						foreignKeyStruct := field.clone()
+						foreignKeyStruct.IsPrimaryKey = false
+						foreignKeyStruct.TagSettingsSet("IS_JOINTABLE_FOREIGNKEY", "true")
+						foreignKeyStruct.TagSettingsDelete("AUTO_INCREMENT")
+						sqlTypes = append(sqlTypes, scope.Quote(relationship.ForeignDBNames[idx])+" "+scope.Dialect().DataTypeOf(foreignKeyStruct))
+						primaryKeys = append(primaryKeys, scope.Quote(relationship.ForeignDBNames[idx]))
+					}
 				}
+			} else {
+				// Deal with POLYMORPHIC tag
+				// Create OwnerType & OwnerID columns in the middle table
+				mockStruct := struct {
+					mockField string
+				}{}
+				reflectType := reflect.ValueOf(mockStruct).Type()
+				fieldStruct := reflectType.Field(0)
+				field := &StructField{
+					Struct:      fieldStruct,
+					Name:        fieldStruct.Name,
+					Names:       []string{fieldStruct.Name},
+					Tag:         fieldStruct.Tag,
+					TagSettings: parseTagSetting(fieldStruct.Tag),
+				}
+
+				quotedType := scope.Quote(relationship.PolymorphicDBName)
+				sqlTypes = append(sqlTypes, quotedType+" "+scope.Dialect().DataTypeOf(field))
+				primaryKeys = append(primaryKeys, quotedType)
 			}
 
 			for idx, fieldName := range relationship.AssociationForeignFieldNames {
